@@ -8,8 +8,6 @@ import java.security.KeyPairGenerator;
 
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
-import java.security.SecureRandom;
-import java.security.spec.InvalidKeySpecException;
 import java.security.spec.NamedParameterSpec;
 import java.util.Arrays;
 import javax.crypto.BadPaddingException;
@@ -25,15 +23,14 @@ import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.crypto.generators.HKDFBytesGenerator;
 import org.bouncycastle.crypto.params.HKDFParameters;
 
-public class crypto {
-    private static final int KEY_SIZE_BYTES = 32;
-    private static final int IV_SIZE_BYTES = 16;
-    private static final int AUTH_KEY_SIZE_BYTES = 32;
-    private static final int MAC_SIZE_BYTES = 32;
-    SecureRandom secureRandom;
-    crypto() {
-        this.secureRandom = new SecureRandom();
-    }
+public class Crypto {
+    final int KEY_SIZE_BYTES = 32;
+    private final int IV_SIZE_BYTES = 16;
+    private final int AUTH_KEY_SIZE_BYTES = 32;
+    private final int MAC_SIZE_BYTES = 32;
+    final int MAX_SKIP = 256;
+
+    Crypto() {}
 
     public KeyPair generate_dh() throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("XDH");
@@ -50,7 +47,7 @@ public class crypto {
         return keyAgreement.generateSecret();
     }
 
-    public byte[] kdf_rk(byte[] rk, byte[] dh_out) throws InvalidKeySpecException, NoSuchAlgorithmException {
+    public byte[] kdf_rk(byte[] rk, byte[] dh_out) {
         Digest digest = new SHA256Digest();
         HKDFBytesGenerator hkdf = new HKDFBytesGenerator(digest);
 
@@ -68,7 +65,7 @@ public class crypto {
         return derivedKeyPair;
     }
 
-    public static byte[] encrypt(byte[] mk, byte[] plaintext, byte[] associatedData) throws NoSuchAlgorithmException,
+    public byte[] encrypt(byte[] mk, byte[] plaintext, byte[] associatedData) throws NoSuchAlgorithmException,
         InvalidKeyException, InvalidAlgorithmParameterException, NoSuchPaddingException, BadPaddingException,
         IllegalBlockSizeException {
         // Generate encryption key, authentication key, and IV using HKDF
@@ -96,7 +93,7 @@ public class crypto {
             .array();
     }
 
-    public static byte[] decrypt(byte[] mk, byte[] ciphertext, byte[] associatedData) throws NoSuchAlgorithmException,
+    public byte[] decrypt(byte[] mk, byte[] ciphertext, byte[] associatedData) throws NoSuchAlgorithmException,
         InvalidKeyException, InvalidAlgorithmParameterException, NoSuchPaddingException, BadPaddingException,
         IllegalBlockSizeException, AEADAuthenticationException {
         // Split ciphertext into encrypted message and HMAC
@@ -127,14 +124,24 @@ public class crypto {
         return cipher.doFinal(encryptedMessage);
     }
 
+    public Header header(byte[] dh_pair, int pn, int n) {
+        return new Header(n, pn, dh_pair);
+    }
+
+    public byte[] concat(byte[] ad, byte[] header) {
+        byte[] concat = new byte[ad.length + header.length];
+        System.arraycopy(ad, 0, concat, 0, ad.length);
+        System.arraycopy(header, 0, concat, ad.length, header.length);
+        return concat;
+    }
+
     static class AEADAuthenticationException extends Exception {
         public AEADAuthenticationException(String message) {
             super(message);
         }
     }
 
-    private static byte[] HKDF(byte[] mk) throws NoSuchAlgorithmException, InvalidKeyException {
-        SecretKeySpec keySpec = new SecretKeySpec(mk, "AES");
+    public byte[] HKDF(byte[] mk) {
         Digest digest = new SHA256Digest();
         byte[] salt = new byte[digest.getDigestSize()]; // Zero-filled byte sequence
         byte[] info = "application-specific-info".getBytes();
@@ -147,7 +154,7 @@ public class crypto {
         return hkdfOutput;
     }
 
-    private static byte[] calculateHmacSha256(byte[] key, byte[] input) throws NoSuchAlgorithmException, InvalidKeyException {
+    private byte[] calculateHmacSha256(byte[] key, byte[] input) throws NoSuchAlgorithmException, InvalidKeyException {
         Mac hmacSha256 = Mac.getInstance("HmacSHA256");
         SecretKeySpec secretKey = new SecretKeySpec(key, "HmacSHA256");
         hmacSha256.init(secretKey);
