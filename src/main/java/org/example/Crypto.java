@@ -1,13 +1,8 @@
 package org.example;
 
 import java.nio.ByteBuffer;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
+import java.security.*;
 
-import java.security.NoSuchAlgorithmException;
-import java.security.PublicKey;
 import java.security.spec.NamedParameterSpec;
 import java.util.Arrays;
 import javax.crypto.BadPaddingException;
@@ -24,15 +19,14 @@ import org.bouncycastle.crypto.generators.HKDFBytesGenerator;
 import org.bouncycastle.crypto.params.HKDFParameters;
 
 public class Crypto {
-    final int KEY_SIZE_BYTES = 32;
-    private final int IV_SIZE_BYTES = 16;
-    private final int AUTH_KEY_SIZE_BYTES = 32;
-    private final int MAC_SIZE_BYTES = 32;
-    final int MAX_SKIP = 256;
+    static final int KEY_SIZE_BYTES = 32;
+    private static final int IV_SIZE_BYTES = 16;
+    private static final int AUTH_KEY_SIZE_BYTES = 32;
+    private static final int MAC_SIZE_BYTES = 32;
 
     Crypto() {}
 
-    public KeyPair generate_dh() throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
+    public static KeyPair generate_dh() throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("XDH");
         NamedParameterSpec paramSpec = new NamedParameterSpec("X25519");
         kpg.initialize(paramSpec); // equivalent to kpg.initialize(255)
@@ -40,14 +34,14 @@ public class Crypto {
         return kpg.generateKeyPair();
     }
 
-    public byte[] dh(KeyPair dh_pair, PublicKey dh_pub) throws NoSuchAlgorithmException, InvalidKeyException {
-        KeyAgreement keyAgreement = KeyAgreement.getInstance("DH");
+    public static byte[] dh(KeyPair dh_pair, PublicKey dh_pub) throws NoSuchAlgorithmException, InvalidKeyException {
+        KeyAgreement keyAgreement = KeyAgreement.getInstance("XDH");
         keyAgreement.init(dh_pair.getPrivate());
         keyAgreement.doPhase(dh_pub, true);
         return keyAgreement.generateSecret();
     }
 
-    public byte[] kdf_rk(byte[] rk, byte[] dh_out) {
+    public static byte[] kdf_rk(byte[] rk, byte[] dh_out) {
         Digest digest = new SHA256Digest();
         HKDFBytesGenerator hkdf = new HKDFBytesGenerator(digest);
 
@@ -58,14 +52,14 @@ public class Crypto {
         return derivedKeyPair;
     }
 
-    public byte[] kdf_ck(byte[] ck) throws NoSuchAlgorithmException, InvalidKeyException {
+    public static byte[] kdf_ck(byte[] ck) throws NoSuchAlgorithmException, InvalidKeyException {
         byte[] derivedKeyPair = new byte[2 * ck.length];
         System.arraycopy(derivedKeyPair, 0, calculateHmacSha256(ck, new byte[]{0x01}), 0, ck.length);
         System.arraycopy(derivedKeyPair, ck.length, calculateHmacSha256(ck, new byte[]{0x01}), 0, ck.length);
         return derivedKeyPair;
     }
 
-    public byte[] encrypt(byte[] mk, byte[] plaintext, byte[] associatedData) throws NoSuchAlgorithmException,
+    public static byte[] encrypt(byte[] mk, byte[] plaintext, byte[] associatedData) throws NoSuchAlgorithmException,
         InvalidKeyException, InvalidAlgorithmParameterException, NoSuchPaddingException, BadPaddingException,
         IllegalBlockSizeException {
         // Generate encryption key, authentication key, and IV using HKDF
@@ -76,7 +70,7 @@ public class Crypto {
             KEY_SIZE_BYTES + AUTH_KEY_SIZE_BYTES + IV_SIZE_BYTES);
 
         // Encrypt the plaintext using AES-256 in CBC mode with PKCS#7 padding
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS7Padding");
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
         SecretKeySpec secretKeySpec = new SecretKeySpec(encryptionKey, "AES");
         IvParameterSpec ivParameterSpec = new IvParameterSpec(iv);
         cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec, ivParameterSpec);
@@ -93,7 +87,7 @@ public class Crypto {
             .array();
     }
 
-    public byte[] decrypt(byte[] mk, byte[] ciphertext, byte[] associatedData) throws NoSuchAlgorithmException,
+    public static byte[] decrypt(byte[] mk, byte[] ciphertext, byte[] associatedData) throws NoSuchAlgorithmException,
         InvalidKeyException, InvalidAlgorithmParameterException, NoSuchPaddingException, BadPaddingException,
         IllegalBlockSizeException, AEADAuthenticationException {
         // Split ciphertext into encrypted message and HMAC
@@ -124,11 +118,11 @@ public class Crypto {
         return cipher.doFinal(encryptedMessage);
     }
 
-    public Header header(byte[] dh_pair, int pn, int n) {
+    public static Header header(byte[] dh_pair, int pn, int n) {
         return new Header(n, pn, dh_pair);
     }
 
-    public byte[] concat(byte[] ad, byte[] header) {
+    public static byte[] concat(byte[] ad, byte[] header) {
         byte[] concat = new byte[ad.length + header.length];
         System.arraycopy(ad, 0, concat, 0, ad.length);
         System.arraycopy(header, 0, concat, ad.length, header.length);
@@ -141,7 +135,7 @@ public class Crypto {
         }
     }
 
-    public byte[] HKDF(byte[] mk) {
+    public static byte[] HKDF(byte[] mk) {
         Digest digest = new SHA256Digest();
         byte[] salt = new byte[digest.getDigestSize()]; // Zero-filled byte sequence
         byte[] info = "application-specific-info".getBytes();
@@ -154,11 +148,41 @@ public class Crypto {
         return hkdfOutput;
     }
 
-    private byte[] calculateHmacSha256(byte[] key, byte[] input) throws NoSuchAlgorithmException, InvalidKeyException {
+    private static byte[] calculateHmacSha256(byte[] key, byte[] input) throws NoSuchAlgorithmException, InvalidKeyException {
         Mac hmacSha256 = Mac.getInstance("HmacSHA256");
         SecretKeySpec secretKey = new SecretKeySpec(key, "HmacSHA256");
         hmacSha256.init(secretKey);
         return hmacSha256.doFinal(input);
+    }
+
+    public static byte[] sign(KeyPair keyPair, byte[] data) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+        Signature signature = Signature.getInstance("EdDSA");
+        signature.initSign(keyPair.getPrivate());
+        signature.update(data);
+        return signature.sign();
+    }
+
+    public static boolean verify(PublicKey publicKey, byte[] data, byte[] signature) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+        Signature ecdsaVerify = Signature.getInstance("EdDSA");
+        ecdsaVerify.initVerify(publicKey);
+        ecdsaVerify.update(data);
+        return ecdsaVerify.verify(signature);
+    }
+
+    public static byte[] kdf(byte[] key_material) {
+        byte[] F = new byte[KEY_SIZE_BYTES];
+        Arrays.fill(F, (byte) 0xFF);
+        byte[] input_key_material = concat(F, key_material);
+        Digest digest = new SHA256Digest();
+        byte[] salt = new byte[digest.getDigestSize()]; // Zero-filled byte sequence
+        byte[] info = "MyProtocolMaybeIDK".getBytes();
+
+        HKDFBytesGenerator hkdf = new HKDFBytesGenerator(digest);
+        hkdf.init(new HKDFParameters(input_key_material, salt, info));
+        byte[] hkdfOutput = new byte[KEY_SIZE_BYTES];
+        hkdf.generateBytes(hkdfOutput, 0, hkdfOutput.length);
+
+        return hkdfOutput;
     }
 
 }

@@ -15,6 +15,12 @@ public class State {
     int number_of_messages_in_previous_sending_chain;
     Map<Pair<byte[], Integer>, byte[]> message_keys_skipped;
 
-    State() {}
+    State() {
+
+    }
+
+    State(KeyPair sending_ratchet_key) {
+        this.sending_ratchet_key = sending_ratchet_key;
+    }
 
 }
